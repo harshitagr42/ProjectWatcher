@@ -1,0 +1,1 @@
+TRACKED_EXTENSIONS = {".py", "ipynb", ".rs", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".hpp", ".c", ".h", ".html", ".css", ".swift"}
