@@ -70,8 +70,8 @@ def test_deleted_tracked_file(watcher):
     assert Path(deleted_path).name == "test.py"
 
 
-# 5. Rapid modifications collapse into a single logical "still active" signal (debounce).
-def test_debounced_rapid_modifications(watcher):
+# 5-1. Rapid modifications collapse into a single logical "still active" signal (debounce). for one file
+def test_debounced_rapid_modifications_one_file(watcher):
     handler, _, tmp_path = watcher
 
     file_path = tmp_path / "rapid.py"
@@ -81,7 +81,33 @@ def test_debounced_rapid_modifications(watcher):
         file_path.write_text(f"v{i+1}")
         time.sleep(0.01)
 
-    wait_until(lambda: handler.last_modified_path)
+    modified_path = wait_until(lambda: handler._last_signal_time.keys())
+
+    assert any(Path(p).name == "rapid.py" for p in modified_path)
+    assert handler.Throttle_counter == 1
+    assert handler.modified_call_count == 5
+
+# 5-2. Rapid modifications collapse into a single logical "still active" signal (debounce). for multiple files
+def test_debounced_rapid_modifications_multiple_files(watcher):
+    handler, _, tmp_path = watcher
+
+    file_1 = tmp_path / "rapid_1.py"
+    file_1.write_text("v0")
+    file_2 = tmp_path / "rapid_2.py"
+    file_2.write_text("v0")
+
+    for i in range(5):
+        file_1.write_text(f"v{i+1}")
+        time.sleep(0.001)
+        file_2.write_text(f"v{i+1}")
+        time.sleep(0.005)
+
+    modified_path = wait_until(lambda: handler._last_signal_time.keys())
+
+    assert handler.Throttle_counter == 2
+    assert handler.modified_call_count == 10
+    assert any(Path(p).name == "rapid_1.py" for p in modified_path)
+    assert any(Path(p).name == "rapid_2.py" for p in modified_path)
 
 
 # 6. Idle threshold triggers idle state transition.
@@ -182,8 +208,8 @@ def test_multiple_watched_roots(tmp_path):
         observer.join()
 
 
-# 12. Rename of a tracked file (handled as a distinct moved/renamed event). if extensions remain same
-def test_rename_tracked_file(watcher):
+# 12. Rename of a tracked file (handled as a delete and reapear). if extensions are tracked of both
+def test_rename_both_tracked_file(watcher):
     handler, _, tmp_path = watcher
 
     src_file = tmp_path / "old_name.py"
@@ -191,20 +217,43 @@ def test_rename_tracked_file(watcher):
     src_file.write_text("content")
 
     src_file.rename(dst_file)
-    moved_paths = wait_until(lambda: handler.last_moved_paths)
+    created_path = wait_until(lambda: handler.last_created_path)
+    deleted_path = wait_until(lambda: handler.last_deleted_path)
 
-    assert Path(moved_paths[0]).name == "old_name.py"
-    assert Path(moved_paths[1]).name == "new_name.py"
+    assert Path(created_path).name == "new_name.py"
+    assert Path(deleted_path).name == "old_name.py"
 
-def test_rename_extension_changed(watcher):
+# 13. Rename of a tracked file (handled as a delete and reapear). if extensions of old file was tracked 
+# and new file is not tracked then only delete event will be produced
+def test_rename_old_tracked_file(watcher):
     handler, _, tmp_path = watcher
 
-    src_file = tmp_path / "temp.py"
-    dst_file = tmp_path / "temp.swift"
+    src_file = tmp_path / "old_name.py"
+    dst_file = tmp_path / "new_name.txt"
+    src_file.write_text("content")
+
+    wait_until(lambda: handler.last_created_path)
+    handler.last_created_path = None # since we have created a file to rename it this value gets populated which we do not want 
+
+    src_file.rename(dst_file)
+    triggered_created = wait_until_timeout(lambda: handler.last_created_path is not None)
+    deleted_path = wait_until(lambda: handler.last_deleted_path)
+
+    assert not triggered_created
+    assert Path(deleted_path).name == "old_name.py"
+
+# 14. Rename of a tracked file (handled as a delete and reapear). if extensions of new file is tracked and 
+# not the old file then only create event will be produced
+def test_rename_new_tracked_file(watcher):
+    handler, _, tmp_path = watcher
+
+    src_file = tmp_path / "old_name.txt"
+    dst_file = tmp_path / "new_name.py"
     src_file.write_text("content")
 
     src_file.rename(dst_file)
-    triggered = wait_until_timeout(lambda: handler.last_moved_paths is not None, timeout=0.3)
+    created_path = wait_until(lambda: handler.last_created_path)
+    triggered_deleted = wait_until_timeout(lambda: handler.last_deleted_path is not None)
 
-    # Should not trigger a moved event since extensions changed
-    assert not triggered
+    assert Path(created_path).name == "new_name.py"
+    assert not triggered_deleted
