@@ -253,3 +253,9 @@ On each sync (scheduled, or triggered at shutdown):
 
 This boundary is the explicit target for Step 9 of the roadmap: proving the core is
 genuinely OS-agnostic, not just "probably fine."
+
+---
+
+## 13. Limitations
+
+1. move/rename events will be treated as file create + file delete the time-tracking continuity will be loss for that file and that is acceptable edge case since not all OS/filesystem reports a move/rename and i do not want it to be present for some OS/filesystem and not for others and i do not want to implement a custom move/rename detection logic for other OS/filesystem that do not report it. so for simplicity, i will treat move/rename as file create + file delete
